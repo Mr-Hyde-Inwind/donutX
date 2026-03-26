@@ -1,4 +1,6 @@
 # donutX
 Awsome rolling donuts
 
-![Rolling Torus](assets/rolling_torus.gif)
+<div style="text-align: center;">
+    <img src="assets/rolling_torus.gif", width="400">
+</div>
