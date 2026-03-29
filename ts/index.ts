@@ -5,8 +5,8 @@ const EPS = 1e-6;
 const disToScreen = 10;
 const zAxisSpeed = Math.PI * 0.2;
 const xAxisSpeed = Math.PI * 0.4;
-const thetaSpacing = Math.PI * 0.1;
-const phiSpacing = Math.PI * 0.1;
+const thetaSpacing = Math.PI * 0.05;
+const phiSpacing = Math.PI * 0.05;
 const R1 = 250;
 const R2 = 300;
 const NEAR_CLIPPING_PLANE = 10;
@@ -168,16 +168,12 @@ function renderingTorus(ctx: CanvasRenderingContext2D,
             const px: number = Math.floor(tp.x)
             const py: number = Math.floor(tp.y)
             const L = np.dot(light);
+            const index = (py*backCtx.canvas.width + px)*4;
             if (L > 0) {
-                for (let i = py-2; i < py+2; i++) {
-                    for (let j = px-2; j < px+2; j++) {
-                        const index: number = (i*backCtx.canvas.width + j)*4;
-                        backImageData.data[index + 0] = 255 * L;
-                        backImageData.data[index + 1] = 255 * L;
-                        backImageData.data[index + 2] = 255 * L;
-                        backImageData.data[index + 3] = 255;
-                    }
-                }
+                backImageData.data[index + 0] = 255 * L;
+                backImageData.data[index + 1] = 255 * L;
+                backImageData.data[index + 2] = 255 * L;
+                backImageData.data[index + 3] = 255;
             }
             start += thetaSpacing;
         }
