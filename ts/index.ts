@@ -1,5 +1,16 @@
+const SCREEN_FACTOR = 60;
+const SCREEN_WIDTH = 16*SCREEN_FACTOR;
+const SCREEN_HEIGHT = 9*SCREEN_FACTOR;
 const EPS = 1e-6;
 const disToScreen = 10;
+const zAxisSpeed = Math.PI * 0.2;
+const xAxisSpeed = Math.PI * 0.4;
+const thetaSpacing = Math.PI * 0.1;
+const phiSpacing = Math.PI * 0.1;
+const R1 = 250;
+const R2 = 300;
+const NEAR_CLIPPING_PLANE = 10;
+const FAR_CLIPPING_PLANE = 30;
 
 class Vector3 {
     x: number;
@@ -38,6 +49,13 @@ class Vector3 {
         return Math.sqrt(this.x**2 + this.y**2 + this.z**2);
     }
 
+    scale(factor: number): Vector3 {
+        this.x *= factor;
+        this.y *= factor;
+        this.z *= factor;
+        return this;
+    }
+
     norm(): Vector3 {
         const len = this.length();
         this.x /= len;
@@ -52,6 +70,13 @@ class Vector3 {
 
     clone(): Vector3 {
         return new Vector3(this.x, this.y, this.z);
+    }
+
+    copy(that: Vector3): Vector3 {
+        this.x = that.x;
+        this.y = that.y;
+        this.z = that.z;
+        return this;
     }
 }
 
@@ -78,11 +103,10 @@ function fillCircle(ctx: CanvasRenderingContext2D, x: number, y: number, radius:
 
 function* circleIter(radius: number): Generator<Vector3> {
     let start: number = 0;
-    const thetaStep: number = Math.PI * 0.05;
     while (2*Math.PI - start > EPS) {
         let x: number = radius*Math.cos(start);
         let y: number = radius*Math.sin(start);
-        start += thetaStep;
+        start += phiSpacing;
         yield new Vector3(x, y, 0);
     }
 }
@@ -98,11 +122,14 @@ function matrixFactor(v: Vector3, mat: Array<Vector3>): Vector3 {
     );
 }
 
-function renderingTorus(ctx: CanvasRenderingContext2D, xAngle: number, zAngle: number) {
-    const cx: number = ctx.canvas.width * 0.5;
-    const cy: number = ctx.canvas.height * 0.5;
+function renderingTorus(ctx: CanvasRenderingContext2D,
+                        backCtx: OffscreenCanvasRenderingContext2D,
+                        xAngle: number, zAngle: number) {
+    backCtx.reset();
+    const backImageData = backCtx.getImageData(0, 0, backCtx.canvas.width, backCtx.canvas.height);
+    const cx: number = backCtx.canvas.width * 0.5;
+    const cy: number = backCtx.canvas.height * 0.5;
     const central: Vector3 = new Vector3(cx, cy, 0);
-    const r2: Vector3 = new Vector3(150, 0, 0);
 
     const rotateMatX = [
         new Vector3(1, 0, 0),
@@ -116,46 +143,70 @@ function renderingTorus(ctx: CanvasRenderingContext2D, xAngle: number, zAngle: n
         new Vector3(0, 0, 1),
     ];
 
-    let r1 = 100;
-    while (r1 <= 100) {
+
+    const r2: Vector3 = new Vector3(R2, 0, 0);
+    const light: Vector3 = new Vector3(-1, 0, -1).norm();
+    for (const p of circleIter(R1)) {
         let start = 0;
         while (2*Math.PI - start > EPS) {
-            for (let p of circleIter(r1)) {
-                let np: Vector3 = p.clone().norm();
-                p.add(r2);
-                const rotateMat = [
-                    new Vector3(Math.cos(start), 0, -Math.sin(start)),
-                    new Vector3(0, 1, 0),
-                    new Vector3(Math.sin(start), 0, Math.cos(start)),
-                ];
-                p = matrixFactor(p, rotateMat);
-                p = matrixFactor(p, rotateMatX);
-                p = matrixFactor(p, rotateMatZ);
-                np = matrixFactor(np, rotateMat);
-                np = matrixFactor(np, rotateMatX);
-                np = matrixFactor(np, rotateMatZ);
-                const rp = p.clone().add(central);
-
-                const light: Vector3 = new Vector3(-1, 0, 1).norm();
-                const L = np.dot(light);
-                // const L = (np.dot(light) + 1) * 0.5;
-                if (L > 0) {
-                    fillCircle(ctx, rp.x, rp.y, 2.5, L);
+            let tp = p.clone();
+            let np = p.clone().norm();
+            const rotateMat = [
+                new Vector3(Math.cos(start), 0, -Math.sin(start)),
+                new Vector3(0, 1, 0),
+                new Vector3(Math.sin(start), 0, Math.cos(start)),
+            ];
+            tp.add(r2);
+            np = matrixFactor(np, rotateMat);
+            np = matrixFactor(np, rotateMatX);
+            np = matrixFactor(np, rotateMatZ);
+            tp = matrixFactor(tp, rotateMat);
+            tp = matrixFactor(tp, rotateMatX);
+            tp = matrixFactor(tp, rotateMatZ);
+            tp.scale(NEAR_CLIPPING_PLANE/FAR_CLIPPING_PLANE);
+            tp.add(central);
+            const px: number = Math.floor(tp.x)
+            const py: number = Math.floor(tp.y)
+            const L = np.dot(light);
+            if (L > 0) {
+                for (let i = py-2; i < py+2; i++) {
+                    for (let j = px-2; j < px+2; j++) {
+                        const index: number = (i*backCtx.canvas.width + j)*4;
+                        backImageData.data[index + 0] = 255 * L;
+                        backImageData.data[index + 1] = 255 * L;
+                        backImageData.data[index + 2] = 255 * L;
+                        backImageData.data[index + 3] = 255;
+                    }
                 }
             }
-            start += Math.PI * 0.05;
+            start += thetaSpacing;
         }
-        r1 += 10;
     }
+
+    backCtx.putImageData(backImageData, 0, 0);
+    ctx.drawImage(backCtx.canvas,
+                  0, 0, backCtx.canvas.width, backCtx.canvas.height,
+                  0, 0, ctx.canvas.width, ctx.canvas.height);
 }
 
 (() => {
     const ctx = initCanvas();
-    // renderingTorus(ctx, Math.PI*0.25, Math.PI*0.25);
+    const backCanvas: OffscreenCanvas = new OffscreenCanvas(SCREEN_WIDTH, SCREEN_HEIGHT);
+    const backCtx = backCanvas.getContext("2d");
+    if (backCtx == null) {
+        throw new Error("OffscreenCanvas not supported.");
+    }
+    ctx.imageSmoothingEnabled = false;
+    backCtx.imageSmoothingEnabled = false;
+    if (backCtx == null) {
+        throw new Error("2D OffscreenCanvas context not supported.");
+    }
+
     let start: number|undefined = undefined;
     let previous: number|undefined = undefined;
     let xAngle = 0;
     let zAngle = 0;
+
     const step = (timestamp: number) => {
         ctx.reset();
         ctx.fillStyle="#151515";
@@ -164,11 +215,11 @@ function renderingTorus(ctx: CanvasRenderingContext2D, xAngle: number, zAngle: n
         if (previous === undefined) previous = timestamp;
         const deltaTime: number = (timestamp - previous) / 1000;
         previous = timestamp;
-        zAngle += Math.PI * 0.2 * deltaTime;
-        xAngle += Math.PI * 0.4 * deltaTime;
+        zAngle += zAxisSpeed * deltaTime;
+        xAngle += xAxisSpeed * deltaTime;
         if (zAngle >= Math.PI * 2) zAngle -= Math.PI*2;
         if (xAngle >= Math.PI * 2) xAngle -= Math.PI*2;
-        renderingTorus(ctx, xAngle, zAngle);
+        renderingTorus(ctx, backCtx, xAngle, zAngle);
         window.requestAnimationFrame(step);
     }
     window.requestAnimationFrame(step);
